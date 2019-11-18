@@ -1,0 +1,10 @@
+- [ ] Mis-prediction Error
+   - Useful for knowing the algorithm's susceptibility to error
+   - Some algorithms need a constant star to operate/operate optimally
+   - One way of fixing this is to predict and subtract the prediction to make a constant star
+   - This allows us to put a bound of how good our prediction must be for the algorithm to operate correctly
+   - (see improvement_2)
+- [ ] Poisson Error
+   - Useful for errors such as Gamma Ray Burst
+   - Also useful for modeling time between burst noise segments
+   - Will program for a mixture of these (see improvement_1)
