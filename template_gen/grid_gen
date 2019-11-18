@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+
+import utils
+import click
+import toml
+import itertools
+import numpy as np
+import numpy.fft as fft
+import scipy.signal as sig
+import scipy.optimize as opti
+import matplotlib.pyplot as plt
+import pyfftw
+import msgpack
+import math
+
+@click.command()
+@click.option('-t', '--template-type',
+              type=click.Choice(['even', 'snr']),
+              required=True)
+@click.option('-f', '--output-format',
+              type=click.Choice(['ntup', 'tup', 'ntemp', 'temp']),
+              required=True)
+@click.option('-o', '--output-file',
+              type=click.Path(),
+              required=True)
+@click.option('-s', '--sample-rate',
+              type=int,
+              required=True)
+@click.option('-n', '--noise',
+              type=float,
+              required=True)
+@click.option('-u0-min', type=float, required=True)
+@click.option('-u0-max', type=float, required=True)
+@click.option('-TE-min', type=float, required=True)
+@click.option('-TE-max', type=float, required=True)
+@click.option('-u0-density', type=int, required=True)
+@click.option('-TE-density', type=int, required=True)
+@click.option('-h', '--half-len',
+              type=bool,
+              require=False,
+              default=False)
+def main(template_type, output_format, output_file, sample_rate, noise,
+         u0_min, u0_max, te_min, te_max, u0_density, te_density, half_len):
+    utils.DEBUG = False
+    # TODO for now template type and format is ignored
+    #u0_axis = [u0_min + (u0_max-u0_min)*float(i)/u0_density
+    #           for i in range(0, u0_density)]
+    u0_axis = [1.0]
+    te_axis = [te_min + (te_max-te_min)*float(i)/te_density
+               for i in range(0, te_density)]
+    grid = [e for e in itertools.product(u0_axis, te_axis)]
+
+    sampler = utils.Sampler(sample_rate)
+
+    noise = np.random.normal(scale=noise, size=10000)
+    snf = np.average(sig.welch(noise)[0])
+
+    i = 0
+    templates = []
+    for u0, te in grid:
+        i += 1
+        print('Template: {} of {}'.format(i, len(grid)))
+
+        s = 1.4
+        ps = 1.4
+        pps = 1.4
+        ss = 1000
+        samples = sampler.sample(lambda t: utils.pzlcw(u0, 0, te, t),
+                                 int(te/sample_rate))
+        # 2.5, log10 from NFD paper (I think) TODO check
+        samples = 2.5*np.log10(samples)
+
+        if half_len:
+            samples = np.array(samples[0:len(samples)//2])
+
+        # mean shift to remove DC component
+        samples = samples - np.mean(samples)
+
+        samples_scale = opti.broyden1(
+            lambda x: utils.inner_product(
+                samples*x, samples*x,
+                snf, sampler.freq_scale())[0] - 1, [1])
+        samples = abs(samples_scale)*samples
+
+        templates.append(samples)
+
+    templates = np.array(templates)
+    with open(output_file+'.mpk', 'bw+') as file:
+        if pre_fft:
+            file.write(msgpack.packb([[(cplx.real, cplx.imag) for cplx in template]
+                                      for template in templates]))
+        else:
+            file.write(msgpack.packb([list(template) for template in templates]))
+
+    templates = {'templates': output_file+'.mpk', 'pre_fft': False}
+    with open(output_file, 'w+') as file:
+        toml.dump(templates, file)
+
+if __name__ == '__main__':
+    main()

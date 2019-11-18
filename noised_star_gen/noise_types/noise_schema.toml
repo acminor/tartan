@@ -1,0 +1,40 @@
+# ranges are inclusive
+# arrays are ranges (default skip 1)
+# arrays of three are ranges (skip third element)
+#
+# multiple noise types are combined first with an
+# inner product of their internal features, then
+# with a inner product between all the noises
+#
+# file name is type={},{{...params={}...}}... for all parts
+# with a final snr={}...
+
+# te and u0 determine signal and noise length and amplitude of signal
+[signal]
+start_len = 'points' # put this many points before start of signal
+end_len = 'points' # put this many points before start of signal
+sample_rate = 'seconds'
+u0 = ['low', 'high', '[skip]']
+te = ['low', 'high', '[skip]']
+
+[[noise]]
+type = 'sine'
+phase = ['low', 'high', '[skip]']
+period = ['low', 'high', '[skip]']
+amplitude = ['low', 'high', '[skip]']
+
+[[noise]]
+type = 'cosine'
+phase = ['low', 'high', '[skip]']
+period = ['low', 'high', '[skip]']
+amplitude = ['low', 'high', '[skip]']
+
+[[noise]]
+type = 'gaussian'
+mean = ['low', 'high', '[skip]']
+variance = ['low', 'high', '[skip]']
+
+[[noise]]
+type = 'uniform'
+min_amplitude = ['low', 'high', '[skip]']
+max_amplitude = ['low', 'high', '[skip]']

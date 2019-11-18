@@ -1,0 +1,39 @@
+#!/bin/bash
+
+U0_MIN=0.1
+U0_MAX=50.0
+TE_MIN=1800.0
+TE_MAX=87616.0
+
+echo $1
+echo $2
+
+if [[$3 = "-h"]]
+then
+    ./grid_gen \
+        -t even \
+        -f ntemp \
+        -o "templates-${TE_MIN}x${TE_MAX}-$1x$2.toml" \
+        -s 15 \
+        -u0-min $U0_MIN \
+        -u0-max $U0_MAX \
+        -TE-min $TE_MIN \
+        -TE-max $TE_MAX \
+        -u0-density $1 \
+        -TE-density $2 \
+        --noise .06 \
+        -h
+else
+    ./grid_gen \
+        -t even \
+        -f ntemp \
+        -o "templates-${TE_MIN}x${TE_MAX}-$1x$2.toml" \
+        -s 15 \
+        -u0-min $U0_MIN \
+        -u0-max $U0_MAX \
+        -TE-min $TE_MIN \
+        -TE-max $TE_MAX \
+        -u0-density $1 \
+        -TE-density $2 \
+        --noise .06
+fi

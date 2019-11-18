@@ -1,0 +1,29 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 1
+u0 = [0.01]
+te = [1000]
+
+[[noise]]
+type='sine'
+phase=0
+period=[50]
+amplitude=[1]
+
+[[noise]]
+type='cosine'
+phase=0
+period=[100]
+amplitude=[1]
+
+[[noise]]
+type='cosine'
+phase=0
+period=[150]
+amplitude=[1,2]
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.1,0.8,0.1]

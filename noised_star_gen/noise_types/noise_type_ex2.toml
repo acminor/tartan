@@ -1,0 +1,16 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 1
+u0 = [0.01]
+te = [1000]
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[1, 15, 2]
+
+[[noise]]
+type='uniform'
+min_amplitude = [0]
+max_amplitude = [0]

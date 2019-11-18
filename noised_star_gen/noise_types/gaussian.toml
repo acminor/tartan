@@ -1,0 +1,11 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [1.0, 0.001, -0.001]
+te = [1800.0, 87616.0, 3600.0]
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.001, 3.0, 0.1]

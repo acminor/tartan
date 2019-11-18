@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+
+import matplotlib.pyplot as plt
+import click
+import toml
+import msgpack
+import numpy as np
+
+@click.group()
+def main():
+    pass
+
+@main.command()
+@click.argument('template', type=click.Path())
+def plot_templates(template):
+    templates = toml.load(template)['templates']
+
+
+    with open (templates, 'rb') as file:
+        templates = np.array([np.array(template)
+                              for template in msgpack.unpackb(file.read())])
+
+    max_width = len(max(templates, key=lambda template: len(template)))
+    print("Max width is {}".format(max_width))
+    for i in range(0, len(templates)):
+        temp = np.pad(templates[i],
+                int((max_width-len(templates[i]))),
+                mode='constant')
+        plt.plot(temp)
+        plt.show()
+
+@main.command()
+@click.argument('star', type=click.Path())
+def plot_star(star):
+    star = toml.load(star)
+    with open(star['samples'], 'rb') as file:
+        samples = np.array(msgpack.unpackb(file.read()))
+    plt.plot(samples)
+    plt.show()
+
+main()
