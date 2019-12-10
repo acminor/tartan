@@ -38,3 +38,19 @@ variance = ['low', 'high', '[skip]']
 type = 'uniform'
 min_amplitude = ['low', 'high', '[skip]']
 max_amplitude = ['low', 'high', '[skip]']
+
+# pre-noise means pre-anomaly noise
+# - special type to test algorithms
+#   effectiveness against solar flares, etc.
+# - if solar flare and microlensing anomaly happen
+#   at the same time, not much can be done (probably)
+[[pre-noise]]
+type = 'flare-sxr'
+# flare parameters
+A = ['low', 'high', '[skip]']
+B = ['low', 'high', '[skip]']
+C = ['low', 'high', '[skip]']
+D = ['low', 'high', '[skip]']
+# DC parameters
+E = ['low', 'high', '[skip]']
+F = ['low', 'high', '[skip]']

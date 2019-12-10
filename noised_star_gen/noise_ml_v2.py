@@ -37,21 +37,14 @@ def signal_power(signal, sample_rate):
 @click.option('-o', '--output-dir',
               type=click.Path(),
               required=True)
-@click.option('-s', '--sample-rate',
-              type=int,
-              required=True)
-@click.option('--desc-file', type=click.Path(), required=True)
-@click.option('-TE-min', type=float, required=True)
-@click.option('-TE-max', type=float, required=True)
-@click.option('-TE-density', type=int, required=True)
+@click.option('-i', '--desc-file', type=click.Path(), required=True)
 @click.option('-plot', type=bool, default=False)
-def main(output_dir, sample_rate, desc_file,
-         te_min, te_max, te_density, plot):
+def main(output_dir, desc_file, plot):
     config = Path(desc_file).stem
 
     a = open(desc_file)
     desc_file = toml.load(a)
-    stars = _gen(sample_rate, te_min, te_max, te_density, desc_file)
+    stars = _gen(desc_file)
 
     if not plot and len(list(Path(output_dir).glob('*'))) != 0:
         if click.confirm('Output dir is not empty. Empty?'):
@@ -90,6 +83,96 @@ def sine(period, amplitude, phase):
 
 def cosine(period, amplitude, phase):
     return lambda t: amplitude*math.cos((2*math.pi*(t/period) + np.radians(phase)) % (2*math.pi))
+
+def get_flare_star_v2(amplitude, tot_time, _sample_time):
+    '''
+    Flare light curve modeled using observations of GJ1234.
+
+    Kepler Flares. II. The Temporal Morphology of White-light Flares on GJ 1234
+    Davenport, et. al.
+    The Astrophysical Journal, 797:122 (Dec. 20, 2014)
+
+    t_half is special index that is a relative index.
+    - sampling into it (i.e. further subdividing) t_half
+      gets different lengths of events
+    amplitude
+    - scale for the final amplitude at peak (peak is by default 1.0)
+    '''
+
+    # [ ] TODO double check formulations
+
+    def calc(t_half):
+        def rise(t_half):
+            return 1 + 1.941*t_half - 0.175*np.power(t_half, 2.0) \
+                - 2.246*np.power(t_half, 3.0) - 1.125*np.power(t_half, 4.0)
+        def fall(t_half):
+            return 0.6890*np.exp(-1.600*t_half) + 0.3030*np.exp(-0.2783*t_half)
+
+        if -1.0 <= t_half and t_half <= 0.0:
+            return rise(t_half)
+        elif 0.0 < t_half and t_half <= 6.0:
+            return fall(t_half)
+        else: # end at 7.0 w/ linear decay to 0.0
+            start = fall(6.0)
+            end = 0.0
+            m = (start - end)/(6.0 - 7.0)
+            # b = y - mx
+            b = fall(6.0) - m*6.0
+            # y = mx + b
+            return m*t_half + b
+
+    # [ ] TODO double check time and generation logic
+    def gen():
+        data = []
+        step = 8.0 / (tot_time / float(_sample_time))
+        # plus step to ensure that we completely cover 7.0
+        # and thus end at 0.0
+        for t_half in np.arange(-1.0, 7.0 + step, step):
+            data.append(amplitude*calc(t_half))
+
+        # some data generation reaches 0.0 faster than others
+        output = []
+        for d in data:
+            if d < 0.0:
+                output.append(0.0)
+            else:
+                output.append(d)
+
+        return data
+
+    return gen
+
+# NOTE: FOR NOW NOT USABLE
+def get_flare_star(A, B, C, D, E, F):
+    '''
+    Flare light curve modeled using soft X-Rays from
+
+    Model of flare lightcurve profile observed in soft X-rays
+    Magdalena Gryciuk, et.al.
+    Proceedings IAU Symposium No. 320, 2015
+    A.G. Kosovichev, S.L. Hawley & P. Heinzel, eds.
+
+    A, B, C, D are flare parameters
+    E, F are linear background parameters
+    -> seems to model something associated
+       - [ ] look up SXR emission
+    '''
+
+    # TODO [ ] is the final form of the flare f(t) correct???
+    def calc(t):
+        a = (1.0/2.0)*math.sqrt(math.pi)*A*C
+        b = math.exp(D*(B - t) + ((C**2)*(D**2))/(4.0))
+        Z = (2*B + (C**2)*D)/(2*C)
+        # TODO [ ] check the error function to make sure the
+        #          same as used in the paper
+        c = (math.erf(Z) - math.erf(Z - (t/C)))
+        flare = a*b*c
+        dc = E*t + F
+
+        return flare + dc
+
+    return lambda t: calc(t)
+
 
 def parse_range(ran):
     LOW = 0
@@ -147,9 +230,8 @@ def parse_noise_descriptors(descriptors):
             print("ERROR: BAD DESCRIPTOR")
             exit(-1)
 
-    global_funcs = Parallel(n_jobs=8, verbose=10)(delayed(parse_descriptor)(desc) for desc in descriptors)
-    #for desc in descriptors:
-    #    global_funcs.append(parse_descriptor(desc))
+    global_funcs = Parallel(n_jobs=8, verbose=10)(
+        delayed(parse_descriptor)(desc) for desc in descriptors)
 
     def summer(func1, func2):
         def _sum(t):
@@ -163,20 +245,65 @@ def parse_noise_descriptors(descriptors):
 
     return res
 
-def _gen(sample_rate, te_min, te_max, te_density, desc_file):
+
+def parse_pre_noise(descriptors):
+    '''
+    Should produce a list of functions to be
+    called where each function returns the generated pre-noise.
+
+    i.e. calling the function returns an array of all the generated points
+
+    flare_star() -> [entire flare array]
+    '''
+
+    global_funcs = list()
+
+    def parse_descriptor(desc):
+        if desc['type'] == 'flare-sxr':
+            A = parse_range(desc['A'])
+            B = parse_range(desc['B'])
+            C = parse_range(desc['C'])
+            D = parse_range(desc['D'])
+            E = parse_range(desc['E'])
+            F = parse_range(desc['F'])
+            args = itertools.product(A, B, C, D, E, F)
+            funcs = [get_flare_star(A, B, C, D, E, F) for (A, B, C, D, E, F) in args]
+            return funcs
+        elif desc['type'] == 'flare-gj1234':
+            amplitude = parse_range(desc['amplitude'])
+            tot_time = parse_range(desc['tot_time'])
+            args = itertools.product(amplitude, tot_time)
+            funcs = [get_flare_star_v2(amplitude, tot_time) for (amplitude, tot_time) in args]
+        else:
+            print("ERROR: BAD DESCRIPTOR")
+            exit(-1)
+
+    global_funcs = Parallel(n_jobs=8, verbose=10)(
+        delayed(parse_descriptor)(desc) for desc in descriptors)
+
+    return list(itertools.product(*global_funcs))
+
+def _gen(desc_file):
     utils.DEBUG = False
 
     funcs = parse_noise_descriptors(desc_file['noise'])
+    #pre_noise_funcs = parse_pre_noise(desc_file['pre-noise'])
 
-    start_len = desc_file['signal']['start_len']
-    end_len = desc_file['signal']['end_len']
     sample_rate = desc_file['signal']['sample_rate']
+    # NOTE make start and end length in terms of points and not seconds
+    start_len = desc_file['signal']['start_len'] * sample_rate
+    end_len = desc_file['signal']['end_len'] * sample_rate
 
     def gen_template(u0, te):
-        width = int(te/sample_rate)
-        template = [utils.nfd_pzlcw(u0, 0, te, t) for t in range(-width, width, sample_rate)]
+        width = int(math.ceil(te/sample_rate))
+        # makes sure that both sides are roughly the same DC for shifting star gen stuff later
+        template = [utils.nfd_pzlcw(u0, 0, te, t) for t in range(-width, width+sample_rate,
+                                                                 sample_rate)]
         # 2.5, log10 from NFD paper (I think) TODO check
         template = 2.5*np.log(template)
+
+        # NOTE: makes sure that all templates start at 0 DC
+        template -= np.min(template)
         return template
 
     u0s = parse_range(desc_file['signal']['u0'])
@@ -192,7 +319,7 @@ def _gen(sample_rate, te_min, te_max, te_density, desc_file):
         start = [f(t) for t in range(0, start_len, sample_rate)]
 
         middle_without_signal = [f((i + len(start))*sample_rate) for i in range(0, len(template))]
-        middle = [f((i + len(start))*sample_rate) + template[i] for i in range(0, len(template))]
+        middle = [middle_without_signal[i] + template[i] for i in range(0, len(template))]
 
         end_start = sample_rate*(len(start)+len(middle))
         end = [f(t) for t in range(end_start, end_start + end_len, sample_rate)]
@@ -201,13 +328,20 @@ def _gen(sample_rate, te_min, te_max, te_density, desc_file):
         npow = noise_power(start+middle_without_signal+end, sample_rate)
 
         start = np.array(start)
-        start += template[0]
+        # NOTE: fixed by making templates start at 0 DC
+        #       - visually inspected to have not discontinuities
+        #start += template[0]
         start = list(start)
 
         end = np.array(end)
-        end += template[-1]
+        # NOTE: fixed by making templates start at 0 DC
+        #       - visually inspected to have not discontinuities
+        #end += template[-1]
         end = list(end)
 
+        # [ ] TODO make it where we also store the signals peak point (very easy to do)
+        #     will make updating code here not have to change match filter code
+        # [ ] TODO fix it also in match filter
         datum = np.array(start+middle+end)
         datum = {
             'samples': datum,
@@ -220,10 +354,6 @@ def _gen(sample_rate, te_min, te_max, te_density, desc_file):
 
     data = Parallel(n_jobs=8, verbose=10)(
         delayed(gen_signal)(f, t) for f, t in itertools.product(funcs, templates))
-#    data = list()
-#    for template in templates:
-#        for f in funcs:
-#            data.append(gen_signal(f, t))
 
     return data
 
