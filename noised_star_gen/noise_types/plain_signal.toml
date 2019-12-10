@@ -10,3 +10,8 @@ te = [1000, 12000, 1000]
 type='gaussian'
 mean=0
 variance=[0.00000001]
+
+[[pre-noise]]
+type='flare-gj1234'
+amplitude=[6.0, 10.0, 1.0]
+tot_time=[100, 1000, 100]

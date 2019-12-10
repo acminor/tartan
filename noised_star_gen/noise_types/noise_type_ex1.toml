@@ -23,7 +23,7 @@ phase=0
 period=[150]
 amplitude=[1,2]
 
-[[noise]]
-type='gaussian'
-mean=0
-variance=[0.1,0.8,0.1]
+#[[noise]]
+#type='gaussian'
+#mean=0
+#variance=[0.1,0.8,0.1]
