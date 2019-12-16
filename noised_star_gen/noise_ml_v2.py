@@ -58,7 +58,7 @@ def main(output_dir, desc_file, plot):
             "spow={:.2f},".format(star['spow']) +
             "npow={:.2f},".format(star['npow']) +
             "snr={:.2f},".format(star['snr']) +
-            "tl={}".format(star['tl']) +
+            "tl={},".format(star['tl']) +
             "tr={}".format(star['tr'])
         )
 
