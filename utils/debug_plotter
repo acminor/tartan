@@ -5,6 +5,7 @@ import click
 import toml
 import msgpack
 import numpy as np
+from pathlib import Path
 
 @click.group()
 def main():
@@ -12,11 +13,12 @@ def main():
 
 @main.command()
 @click.argument('template', type=click.Path())
-def plot_templates(template):
+@click.option('--base-dir', type=click.Path())
+def plot_templates(template, base_dir):
     templates = toml.load(template)['templates']
 
-
-    with open (templates, 'rb') as file:
+    with open(str(Path(base_dir) / Path(templates))
+            if base_dir else templates, 'rb') as file:
         templates = np.array([np.array(template)
                               for template in msgpack.unpackb(file.read())])
 

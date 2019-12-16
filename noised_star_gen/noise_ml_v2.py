@@ -58,7 +58,8 @@ def main(output_dir, desc_file, plot):
             "spow={:.2f},".format(star['spow']) +
             "npow={:.2f},".format(star['npow']) +
             "snr={:.2f},".format(star['snr']) +
-            "t0={}".format(star['t0'])
+            "tl={}".format(star['tl']) +
+            "tr={}".format(star['tr'])
         )
 
         if plot:
@@ -292,6 +293,8 @@ def _gen(desc_file):
     start_len = desc_file['signal']['start_len'] * sample_rate
     end_len = desc_file['signal']['end_len'] * sample_rate
 
+    dcs = parse_range(desc_file['signal']['dc'])
+
     funcs = parse_noise_descriptors(desc_file['noise'])
     pre_noise_func_groups = parse_pre_noise(desc_file['pre-noise'], sample_rate)
 
@@ -316,7 +319,7 @@ def _gen(desc_file):
     print('Amount to gen: {}'.format(tot_iter))
 
 
-    def gen_signal(f, pre_noise_funcs, template):
+    def gen_signal(f, pre_noise_funcs, template, dc):
         i = 0
 
         ran = list(range(i, i + start_len, sample_rate))
@@ -367,18 +370,19 @@ def _gen(desc_file):
         # [ ] TODO fix it also in match filter
         datum = np.array(start+pre_noise+middle+end)
         datum = {
-            'samples': datum,
+            'samples': datum + dc,
             'spow': spow,
             'npow': npow,
             'snr': spow - npow,
-            't0': int(len(start) + len(pre_noise) + len(middle)/2.0)
+            'tl': len(start) + len(pre_noise),
+            'tr': len(start) + len(pre_noise) + len(middle)
         }
 
         return datum
 
     data = Parallel(n_jobs=8, verbose=10)(
-        delayed(gen_signal)(f, pnfs, t) for f, pnfs, t in itertools.product(
-            funcs, pre_noise_func_groups, templates))
+        delayed(gen_signal)(f, pnfs, t, dc) for f, pnfs, t, dc in itertools.product(
+            funcs, pre_noise_func_groups, templates, dcs))
 
     return data
 

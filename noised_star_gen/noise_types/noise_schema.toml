@@ -16,6 +16,7 @@ end_len = 'points' # put this many points before start of signal
 sample_rate = 'seconds'
 u0 = ['low', 'high', '[skip]']
 te = ['low', 'high', '[skip]']
+dc = ['low', 'high', '[skip]']
 
 [[noise]]
 type = 'sine'
@@ -46,6 +47,22 @@ max_amplitude = ['low', 'high', '[skip]']
 #   at the same time, not much can be done (probably)
 [[pre-noise]]
 type = 'flare-sxr'
+# flare parameters
+A = ['low', 'high', '[skip]']
+B = ['low', 'high', '[skip]']
+C = ['low', 'high', '[skip]']
+D = ['low', 'high', '[skip]']
+# DC parameters
+E = ['low', 'high', '[skip]']
+F = ['low', 'high', '[skip]']
+
+# pre-noise means pre-anomaly noise
+# - special type to test algorithms
+#   effectiveness against solar flares, etc.
+# - if solar flare and microlensing anomaly happen
+#   at the same time, not much can be done (probably)
+[[pre-noise]]
+type = 'flare-gj1234'
 # flare parameters
 A = ['low', 'high', '[skip]']
 B = ['low', 'high', '[skip]']
