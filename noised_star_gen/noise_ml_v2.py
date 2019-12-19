@@ -13,6 +13,8 @@ import msgpack
 import math
 from pathlib import Path
 from joblib import Parallel, delayed
+from time import time
+from multiprocessing import cpu_count
 
 # NOTE use mean power since white noise
 def noise_power(noise, sample_rate):
@@ -40,45 +42,47 @@ def signal_power(signal, sample_rate):
 @click.option('-i', '--desc-file', type=click.Path(), required=True)
 @click.option('-plot', type=bool, default=False)
 def main(output_dir, desc_file, plot):
-    config = Path(desc_file).stem
-
-    a = open(desc_file)
-    desc_file = toml.load(a)
-    stars = _gen(desc_file)
+    with open(desc_file) as a:
+        desc_data = toml.load(a)
 
     if not plot and len(list(Path(output_dir).glob('*'))) != 0:
-        if click.confirm('Output dir is not empty. Empty?'):
-            for f in Path(output_dir).glob('*'):
-                f.unlink()
+            if click.confirm('Output dir is not empty. Empty?'):
+                for f in Path(output_dir).glob('*'):
+                    f.unlink()
 
-    for i, star in enumerate(stars):
-        path_name = (
-            "config={},".format(config) +
-            "len={},".format(len(star['samples'])) +
-            "spow={:.2f},".format(star['spow']) +
-            "npow={:.2f},".format(star['npow']) +
-            "snr={:.2f},".format(star['snr']) +
-            "tl={},".format(star['tl']) +
-            "tr={}".format(star['tr'])
-        )
+    config_name = Path(desc_file).stem
+    stars = _gen(desc_data, config_name, output_dir, plot)
 
-        if plot:
-            plt.plot(star['samples'])
-            plt.title(path_name)
-            plt.show()
-        else:
-            star['id'] = path_name
-            star['star_type'] = 'unknown'
-            star['sample_rate'] = 15
-            star['arima_model_file'] = ''
+def write_star(star, config_name, output_dir, plot):
+    path_name = (
+        "config={},".format(config_name) +
+        "len={},".format(len(star['samples'])) +
+        "spow={:.2f},".format(star['spow']) +
+        "npow={:.2f},".format(star['npow']) +
+        "snr={:.2f},".format(star['snr']) +
+        "tl={},".format(star['tl']) +
+        "tr={}".format(star['tr'])
+    )
 
-            with open(str(Path(output_dir)/Path('star' + str(i) + '.mpk')), 'wb+') as file:
-                file.write(msgpack.packb(list(star['samples'])))
+    if plot:
+        plt.plot(star['samples'])
+        plt.title(path_name)
+        plt.show()
+    else:
+        star['id'] = path_name
+        star['star_type'] = 'unknown'
+        star['sample_rate'] = 15
+        star['arima_model_file'] = ''
 
-            star['samples'] = 'star' + str(i) + '.mpk'
+        # hopefully to prevent two files from being the same
+        i = time()
+        with open(str(Path(output_dir)/Path('star' + str(i) + '.mpk')), 'wb+') as file:
+            file.write(msgpack.packb(list(star['samples'])))
 
-            with open(str(Path(output_dir)/Path('star' + str(i) + '.toml')), 'w+') as file:
-                toml.dump(star, file)
+        star['samples'] = 'star' + str(i) + '.mpk'
+
+        with open(str(Path(output_dir)/Path('star' + str(i) + '.toml')), 'w+') as file:
+            toml.dump(star, file)
 
 def sine(period, amplitude, phase):
     return lambda t: amplitude*math.sin((2*math.pi*(t/period) + np.radians(phase)) % (2*math.pi))
@@ -231,7 +235,7 @@ def parse_noise_descriptors(descriptors):
             print("ERROR: BAD DESCRIPTOR")
             exit(-1)
 
-    global_funcs = Parallel(n_jobs=8, verbose=10)(
+    global_funcs = Parallel(n_jobs=cpu_count(), verbose=10)(
         delayed(parse_descriptor)(desc) for desc in descriptors)
 
     def summer(func1, func2):
@@ -276,16 +280,18 @@ def parse_pre_noise(descriptors, sample_rate):
             funcs = [get_flare_star_v2(amplitude, tot_time, sample_rate)
                      for (amplitude, tot_time) in args]
             return funcs
+        elif desc['type'] == 'skip':
+            return [lambda: []]
         else:
             print("ERROR: BAD DESCRIPTOR")
             exit(-1)
 
-    global_funcs = Parallel(n_jobs=8, verbose=10)(
+    global_funcs = Parallel(n_jobs=cpu_count(), verbose=10)(
         delayed(parse_descriptor)(desc) for desc in descriptors)
 
     return list(itertools.product(*global_funcs))
 
-def _gen(desc_file):
+def _gen(desc_file, config_name, output_dir, plot):
     utils.DEBUG = False
 
     sample_rate = desc_file['signal']['sample_rate']
@@ -313,11 +319,10 @@ def _gen(desc_file):
     u0s = parse_range(desc_file['signal']['u0'])
     tes = parse_range(desc_file['signal']['te'])
     args = itertools.product(u0s, tes)
-    templates = Parallel(n_jobs=8, verbose=10)(delayed(gen_template)(u0, te) for (u0, te) in args)
+    templates = Parallel(n_jobs=cpu_count(), verbose=10)(delayed(gen_template)(u0, te) for (u0, te) in args)
 
-    tot_iter = len(funcs)*len(templates)
+    tot_iter = len(funcs)*len(templates)*len(dcs)*len(pre_noise_func_groups)
     print('Amount to gen: {}'.format(tot_iter))
-
 
     def gen_signal(f, pre_noise_funcs, template, dc):
         i = 0
@@ -378,13 +383,11 @@ def _gen(desc_file):
             'tr': len(start) + len(pre_noise) + len(middle)
         }
 
-        return datum
+        write_star(datum, config_name, output_dir, plot)
 
-    data = Parallel(n_jobs=8, verbose=10)(
+    Parallel(n_jobs=cpu_count(), verbose=10)(
         delayed(gen_signal)(f, pnfs, t, dc) for f, pnfs, t, dc in itertools.product(
-            funcs, pre_noise_func_groups, templates, dcs))
-
-    return data
+        funcs, pre_noise_func_groups, templates, dcs))
 
 if __name__ == '__main__':
     main()

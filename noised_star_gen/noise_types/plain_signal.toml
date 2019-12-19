@@ -2,8 +2,8 @@
 start_len = 1000
 end_len = 1000
 sample_rate = 1
-u0 = [0.01, 0.1, 0.06]
-te = [1000, 12000, 7000]
+u0 = [0.001, 0.1, 0.06]
+te = [3600, 86400, 3600]
 dc = [0.0, 10.0, 6.0]
 
 # make it so low that it is essentially not there
@@ -14,5 +14,5 @@ variance=[0.00000001]
 
 [[pre-noise]]
 type='flare-gj1234'
-amplitude=[6.0, 10.0, 6.0]
-tot_time=[100, 1000, 600]
+amplitude=[6.0, 10.0, 2.0]
+tot_time=[100, 7200, 3000]
