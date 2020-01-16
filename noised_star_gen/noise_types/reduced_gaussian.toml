@@ -1,11 +1,15 @@
 [signal]
-start_len = 250 
-end_len = 250
+start_len = 1000
+end_len = 1000
 sample_rate = 15
-u0 = [1.00, 0.001, -0.04]
-te = [1800.0, 30000.0, 3600.0]
+u0 = [1.0, 0.001, -0.008]
+te = [1800.0, 87616.0, 7200.0]
+dc = [0.0, 10.0, 6.0]
 
 [[noise]]
 type='gaussian'
 mean=0
-variance=[0.001, 0.010, 0.004]
+variance=[0.001, 0.04, 0.004]
+
+[[pre-noise]]
+type='skip'
