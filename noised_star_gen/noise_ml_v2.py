@@ -14,7 +14,84 @@ import math
 from pathlib import Path
 from joblib import Parallel, delayed
 from time import time
-from multiprocessing import cpu_count
+from datetime import datetime
+from multiprocessing import cpu_count, Value, Manager
+from collections import namedtuple
+import sqlite3
+
+class NewDataWriter:
+    def connect(self):
+        class Connection:
+            def __init__(self, lock, db):
+                self._lock = lock
+                self._db = db
+            def __enter__(self):
+                return self._db
+            def __exit__(self, type, value, traceback):
+                self._db.commit()
+                self._db.close()
+                self._lock.release()
+
+        while True:
+            for i, lock in enumerate(self._db_locks):
+                if lock.acquire(blocking=False):
+                    self._dbs[i] = sqlite3.connect(self._get_db_name(i))
+                    return Connection(self._db_locks[i], self._dbs[i])
+    def close(self):
+        conn = sqlite3.connect(self._get_db_name(0))
+        c = conn.cursor();
+
+        for i in range(1, self._num_dbs):
+            c.executescript(
+                "attach \"{}\" as toMerge;".format(self._get_db_name(i)) +
+                "insert into StarEntry select * from toMerge.StarEntry;"
+                "detach toMerge;",
+            )
+            conn.commit()
+
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS GenSchema("
+            "   run_time TIMESTAMP PRIMARY KEY,"
+            "   schema TEXT NOT NULL"
+            ");"
+        )
+
+        c.execute(
+            "insert into GenSchema(run_time, schema) VALUES (?, ?);",
+            (datetime.utcnow(), toml.dumps(self._gen_toml_desc))
+        )
+
+        conn.commit()
+        conn.close()
+
+        Path(self._get_db_name(0)).rename(self._db_file_name)
+        for i in range(1, self._num_dbs):
+            Path(self._get_db_name(i)).unlink()
+    def _put_schema(self, db):
+        conn = sqlite3.connect(db)
+        c = conn.cursor()
+        c.execute("PRAGMA cache_size = -20240;")
+        c.execute("PRAGMA journal_mode = wal;")
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS StarEntry("
+            "   id INTEGER PRIMARY KEY,"
+            "   desc TEXT NOT NULL,"
+            "   data BLOB NOT NULL"
+            ");"
+        )
+        conn.commit()
+        conn.close()
+    def _get_db_name(self, i):
+        return self._db_file_name + '{}'.format(i)
+    def __init__(self, db_file_name, lock_factory, num_dbs, gen_toml_desc):
+        self._db_file_name = db_file_name
+        self._db_locks = [lock_factory() for i in range(0, num_dbs)]
+        self._dbs = [None for i in range(0, num_dbs)]
+        self._num_dbs = num_dbs
+        self._gen_toml_desc = gen_toml_desc
+
+        for i in range(0, num_dbs):
+            self._put_schema(self._get_db_name(i))
 
 # NOTE use mean power since white noise
 def noise_power(noise, sample_rate):
@@ -36,24 +113,30 @@ def signal_power(signal, sample_rate):
     return power
 
 @click.command()
-@click.option('-o', '--output-dir',
+@click.option('-o', '--output',
+              help='directory for old_data_fmt, sqlite3 db file for new_data_fmt',
               type=click.Path(),
               required=True)
 @click.option('-i', '--desc-file', type=click.Path(), required=True)
 @click.option('-plot', type=bool, default=False)
-def main(output_dir, desc_file, plot):
+@click.option('-new-data-fmt', type=bool, default=False)
+def main(output, desc_file, plot, new_data_fmt):
     with open(desc_file) as a:
         desc_data = toml.load(a)
 
-    if not plot and len(list(Path(output_dir).glob('*'))) != 0:
+    if not plot:
+        if not new_data_fmt and len(list(Path(output).glob('*'))) != 0:
             if click.confirm('Output dir is not empty. Empty?'):
-                for f in Path(output_dir).glob('*'):
+                for f in Path(output).glob('*'):
                     f.unlink()
+        elif new_data_fmt and Path(output).exists():
+            if click.confirm('Output db is not empty. Empty?'):
+                Path(output).unlink()
 
     config_name = Path(desc_file).stem
-    stars = _gen(desc_data, config_name, output_dir, plot)
+    stars = _gen(desc_data, config_name, output, plot, new_data_fmt)
 
-def write_star(star, config_name, output_dir, plot):
+def write_star(star, config_name, output_dir, plot, star_count, new_data_writer):
     path_name = (
         "config={},".format(config_name) +
         "len={},".format(len(star['samples'])) +
@@ -74,15 +157,35 @@ def write_star(star, config_name, output_dir, plot):
         star['sample_rate'] = 15
         star['arima_model_file'] = ''
 
+        def get_msgpack():
+            return msgpack.packb(list(star['samples']))
+
         # hopefully to prevent two files from being the same
-        i = time()
-        with open(str(Path(output_dir)/Path('star' + str(i) + '.mpk')), 'wb+') as file:
-            file.write(msgpack.packb(list(star['samples'])))
+        with star_count.lock:
+            i = star_count.value.value
+            star_count.value.value += 1
 
-        star['samples'] = 'star' + str(i) + '.mpk'
+        if new_data_writer is not None:
+            with new_data_writer.connect() as conn:
+                c = conn.cursor()
 
-        with open(str(Path(output_dir)/Path('star' + str(i) + '.toml')), 'w+') as file:
-            toml.dump(star, file)
+                data = get_msgpack()
+
+                star['samples'] = ''
+                desc = toml.dumps(star)
+
+                c.execute(
+                    "INSERT INTO StarEntry(id, desc, data) VALUES (?, ?, ?)",
+                    (i, desc, data)
+                )
+        else:
+            with open(str(Path(output_dir)/Path('star' + str(i) + '.mpk')), 'wb+') as file:
+                file.write(get_msgpack())
+
+            star['samples'] = 'star' + str(i) + '.mpk'
+
+            with open(str(Path(output_dir)/Path('star' + str(i) + '.toml')), 'w+') as file:
+                toml.dump(star, file)
 
 def sine(period, amplitude, phase):
     return lambda t: amplitude*math.sin((2*math.pi*(t/period) + np.radians(phase)) % (2*math.pi))
@@ -291,7 +394,7 @@ def parse_pre_noise(descriptors, sample_rate):
 
     return list(itertools.product(*global_funcs))
 
-def _gen(desc_file, config_name, output_dir, plot):
+def _gen(desc_file, config_name, output_dir, plot, new_data_fmt):
     utils.DEBUG = False
 
     sample_rate = desc_file['signal']['sample_rate']
@@ -324,70 +427,82 @@ def _gen(desc_file, config_name, output_dir, plot):
     tot_iter = len(funcs)*len(templates)*len(dcs)*len(pre_noise_func_groups)
     print('Amount to gen: {}'.format(tot_iter))
 
-    def gen_signal(f, pre_noise_funcs, template, dc):
-        i = 0
+    with Manager() as manager:
+        StarCount = namedtuple('StarCount', ['value', 'lock'])
+        star_count = StarCount(manager.Value('i', 0),
+                               manager.Lock())
 
-        ran = list(range(i, i + start_len, sample_rate))
-        start = [f(t) for t in ran]
-        # NOTE: plus sample_rate on all to get the next point (not the last point used)
-        i = ran[-1] + sample_rate
+        # NOTE optimal write speed seems to be setting to number of threads
+        #      used which makes intuitive sense as a thread finishes one db opens up
+        new_data_writer = NewDataWriter(output_dir, manager.Lock, 16, desc_file) if new_data_fmt else None
 
-        pre_noise_without_signal = []
-        pre_noise = []
-        for pnf in pre_noise_funcs:
-            pre_noise += pnf()
+        def gen_signal(f, pre_noise_funcs, template, dc):
+            i = 0
 
-        if len(pre_noise) > 0:
-            #raise Exception("greater than 0: {}".format(pre_noise))
-            ran = list(range(i, i + len(pre_noise)*sample_rate, sample_rate))
-            pre_noise_without_signal = [f(t) for t in ran]
+            ran = list(range(i, i + start_len, sample_rate))
+            start = [f(t) for t in ran]
+            # NOTE: plus sample_rate on all to get the next point (not the last point used)
             i = ran[-1] + sample_rate
-            pre_noise = \
-                [pre_noise_without_signal[i] + pre_noise[i] for i in range(0, len(pre_noise))]
 
-        ran = list(range(i, i + len(template)*sample_rate, sample_rate))
-        middle_without_signal = [f(t) for t in ran]
-        middle = [middle_without_signal[i] + template[i] for i in range(0, len(template))]
-        i = ran[-1] + sample_rate
+            pre_noise_without_signal = []
+            pre_noise = []
+            for pnf in pre_noise_funcs:
+                pre_noise += pnf()
 
-        ran = list(range(i, i + end_len, sample_rate))
-        end = [f(t) for t in ran]
-        i = ran[-1] + sample_rate
+            if len(pre_noise) > 0:
+                #raise Exception("greater than 0: {}".format(pre_noise))
+                ran = list(range(i, i + len(pre_noise)*sample_rate, sample_rate))
+                pre_noise_without_signal = [f(t) for t in ran]
+                i = ran[-1] + sample_rate
+                pre_noise = \
+                    [pre_noise_without_signal[i] + pre_noise[i] for i in range(0, len(pre_noise))]
 
-        spow = signal_power(template, sample_rate)
-        # NOTE: only considers the noise power in the part with the microlensing signal
-        npow = noise_power(middle_without_signal, sample_rate)
+            ran = list(range(i, i + len(template)*sample_rate, sample_rate))
+            middle_without_signal = [f(t) for t in ran]
+            middle = [middle_without_signal[i] + template[i] for i in range(0, len(template))]
+            i = ran[-1] + sample_rate
 
-        start = np.array(start)
-        # NOTE: fixed by making templates start at 0 DC
-        #       - visually inspected to have not discontinuities
-        #start += template[0]
-        start = list(start)
+            ran = list(range(i, i + end_len, sample_rate))
+            end = [f(t) for t in ran]
+            i = ran[-1] + sample_rate
 
-        end = np.array(end)
-        # NOTE: fixed by making templates start at 0 DC
-        #       - visually inspected to have not discontinuities
-        #end += template[-1]
-        end = list(end)
+            spow = signal_power(template, sample_rate)
+            # NOTE: only considers the noise power in the part with the microlensing signal
+            npow = noise_power(middle_without_signal, sample_rate)
 
-        # [ ] TODO make it where we also store the signals peak point (very easy to do)
-        #     will make updating code here not have to change match filter code
-        # [ ] TODO fix it also in match filter
-        datum = np.array(start+pre_noise+middle+end)
-        datum = {
-            'samples': datum + dc,
-            'spow': spow,
-            'npow': npow,
-            'snr': spow - npow,
-            'tl': len(start) + len(pre_noise),
-            'tr': len(start) + len(pre_noise) + len(middle)
-        }
+            start = np.array(start)
+            # NOTE: fixed by making templates start at 0 DC
+            #       - visually inspected to have not discontinuities
+            #start += template[0]
+            start = list(start)
 
-        write_star(datum, config_name, output_dir, plot)
+            end = np.array(end)
+            # NOTE: fixed by making templates start at 0 DC
+            #       - visually inspected to have not discontinuities
+            #end += template[-1]
+            end = list(end)
 
-    Parallel(n_jobs=cpu_count(), verbose=10)(
-        delayed(gen_signal)(f, pnfs, t, dc) for f, pnfs, t, dc in itertools.product(
-        funcs, pre_noise_func_groups, templates, dcs))
+            # [ ] TODO make it where we also store the signals peak point (very easy to do)
+            #     will make updating code here not have to change match filter code
+            # [ ] TODO fix it also in match filter
+            datum = np.array(start+pre_noise+middle+end)
+            datum = {
+                'samples': datum + dc,
+                'spow': spow,
+                'npow': npow,
+                'snr': spow - npow,
+                'tl': len(start) + len(pre_noise),
+                'tr': len(start) + len(pre_noise) + len(middle)
+            }
+
+            write_star(datum, config_name, output_dir, plot, star_count, new_data_writer)
+
+        Parallel(n_jobs=cpu_count(), verbose=10)(
+            delayed(gen_signal)(f, pnfs, t, dc) for f, pnfs, t, dc in itertools.product(
+            funcs, pre_noise_func_groups, templates, dcs))
+
+        if new_data_writer:
+            new_data_writer.close()
 
 if __name__ == '__main__':
     main()
