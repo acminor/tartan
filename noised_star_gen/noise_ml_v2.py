@@ -300,6 +300,15 @@ def parse_range(ran):
         print("ERROR: BAD RANGE")
         exit(-1)
 
+def incremental_sum(a):
+    b = np.zeros(len(a))
+    for i in range(0, len(a)):
+        if i == 0:
+            b[i] = a[i]
+        else:
+            b[i] = a[i] + b[i-1]
+    return b
+
 def parse_noise_descriptors(descriptors):
     global_funcs = list()
 
@@ -333,6 +342,126 @@ def parse_noise_descriptors(descriptors):
             max_amplitudes = parse_range(desc['max_amplitude'])
             args = itertools.product(min_amplitudes, max_amplitudes)
             funcs = [get_uniform(low, high) for (low, high) in args]
+            return funcs
+        elif desc['type'] == 'simple_predict_error':
+            def simple_predict_error(mean_amp, var_amp, dur_samps_amp, samp_rate):
+                MIN_ANOMALY_VALUES = 10000
+                dur_between_amp_anomaly = np.floor(np.random.power(1, size=MIN_ANOMALY_VALUES)*dur_samps_amp)
+                amp_anomaly_points = incremental_sum(dur_between_amp_anomaly)
+
+                # NOTE still might be some issues with zeros, but these should mostly be surpressed implicitely
+                # FIXME [ ]
+
+                # This would suggest we should have multiple anomalies per interval
+                # thus we ignore this and fill all samples with an anomaly
+                if dur_samps_amp <= 1.0:
+                    anomaly_values = np.zeros(MIN_ANOMALY_VALUES)
+                    for i in range(0, MIN_ANOMALY_VALUES):
+                        anomaly_values[i] = np.random.normal(loc=mean_amp, scale=var_amp)
+                # Normal operation with potentially more than one anomaly per interval (which we ignore)
+                else:
+                    anomaly_values = np.zeros(int(amp_anomaly_points[-1]) + 1)
+                    for point in amp_anomaly_points:
+                        anomaly_values[int(point)] = np.random.normal(loc=mean_amp, scale=var_amp)
+
+                #print(anomaly_values[0:100])
+                def inner_function(t):
+                    # due to inexact floating point, this should be even
+                    # but we round to the nearest because it might not be
+                    # so ceiling and floor would not be appropriate
+                    index = int(np.around(t/sample_rate))
+                    amp_distortion = anomaly_values[index]
+                    return amp_distortion
+
+                return inner_function
+            mean_amplitudes = parse_range(desc['mean_amplitude'])
+            var_amplitudes = parse_range(desc['var_amplitude'])
+            # we do not take into account more than one error happening
+            # during a sample period (one error every sample period is the
+            # furthest we can go)
+            dur_samples_amplitude = parse_range(desc['dur_samples_amplitude'])
+            sample_rate = float(desc['sample_rate'])
+            args = itertools.product(
+                mean_amplitudes,
+                var_amplitudes,
+                dur_samples_amplitude,
+                [sample_rate]
+            )
+            funcs = [simple_predict_error(
+                m_amps, v_amps, d_s_amp,
+                sr
+            ) for (m_amps, v_amps, d_s_amp, sr) in args]
+            return funcs
+        elif desc['type'] == 'sine_with_phase_error':
+            # Their are arguments to be made about a constant (small-mag) phase
+            # wobble with occasional bumps and for not correcting back to 0 (full-correction)
+            # on the next hit. Yet, we also see this as a good model to test both the effect
+            # of short-term amplitude mispredictions and to test long-term phase mispredictions
+            #
+            # clarification: full-correction back to localized 0 (starting phase)
+            #
+            # their is also something to be said about gaussian noise layered on top of the raw
+            # signal may affect the prediction differently than just as if the signal is shifted
+            # that gaussian noise level up or down. (we do not consider this)
+            def sine_with_phase_error(period, amplitude, starting_phase,
+                                      mean_phase, var_phase, dur_samps_phase, sample_rate):
+                MIN_ANOMALY_VALUES = 10000
+                dur_between_phase_anomaly = np.floor(np.random.power(1, size=MIN_ANOMALY_VALUES)*dur_samps_phase)
+                phase_anomaly_points = incremental_sum(dur_between_phase_anomaly)
+
+                # FIXME same as 'spe'
+                if dur_samps_phase <= 1.0:
+                    flip_or_shift = np.zeros(MIN_ANOMALY_VALUES)
+                    print(
+                        'WARNING: switching phase every turn is essentially amplitude distortion (duration <= 1.0)'
+                    )
+                    for i in range(0, MIN_ANOMALY_VALUES):
+                        flip_or_shift[i] = True
+                else:
+                    flip_or_shift = np.zeros(int(phase_anomaly_points[-1]) + 1)
+                    for point in phase_anomaly_points:
+                        flip_or_shift[int(point)] = True
+
+                data = {}
+                data['current_phase_shift'] = 0.0
+                def inner_function(t):
+                    # due to inexact floating point, this should be even
+                    # but we round to the nearest because it might not be
+                    # so ceiling and floor would not be appropriate
+                    index = int(np.around(t/sample_rate))
+
+                    if flip_or_shift[index]:
+                        if data['current_phase_shift'] != 0.0:
+                            data['current_phase_shift'] = 0.0
+                        else:
+                            data['current_phase_shift'] = np.random.normal(loc=mean_phase, scale=var_phase)
+
+                    part_a = 2*math.pi*(t/period)
+                    part_b = np.radians(starting_phase + data['current_phase_shift'])
+                    return amplitude*math.sin((part_a + part_b) % (2*math.pi))
+
+                return inner_function
+            periods = parse_range(desc['period'])
+            amplitudes = parse_range(desc['amplitude'])
+            starting_phases = parse_range(desc['phase'])
+
+            mean_phases = parse_range(desc['mean_phase'])
+            var_phases = parse_range(desc['var_phase'])
+            dur_samples_phase = parse_range(desc['dur_samples_phase'])
+            sample_rate = parse_range(desc['sample_rate'])
+            args = itertools.product(
+                periods,
+                amplitudes,
+                starting_phases,
+                mean_phases,
+                var_phases,
+                dur_samples_phase,
+                sample_rate,
+            )
+            funcs = [sine_with_phase_error(
+                period, amp, starting_phase,
+                m_phases, v_phases, d_s_phase, sr
+            ) for (period, amp, starting_phase, m_phases, v_phases, d_s_phase, sr) in args]
             return funcs
         else:
             print("ERROR: BAD DESCRIPTOR")
