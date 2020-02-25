@@ -309,6 +309,55 @@ def incremental_sum(a):
             b[i] = a[i] + b[i-1]
     return b
 
+# Their are arguments to be made about a constant (small-mag) phase
+# wobble with occasional bumps and for not correcting back to 0 (full-correction)
+# on the next hit. Yet, we also see this as a good model to test both the effect
+# of short-term amplitude mispredictions and to test long-term phase mispredictions
+#
+# clarification: full-correction back to localized 0 (starting phase)
+#
+# their is also something to be said about gaussian noise layered on top of the raw
+# signal may affect the prediction differently than just as if the signal is shifted
+# that gaussian noise level up or down. (we do not consider this)
+def sine_with_phase_error(period, amplitude, starting_phase,
+                          mean_phase, var_phase, dur_samps_phase, sample_rate):
+    MIN_ANOMALY_VALUES = 10000
+    dur_between_phase_anomaly = np.floor(np.random.power(1, size=MIN_ANOMALY_VALUES)*dur_samps_phase)
+    phase_anomaly_points = incremental_sum(dur_between_phase_anomaly)
+
+    # FIXME same as 'spe'
+    if dur_samps_phase <= 1.0:
+        flip_or_shift = np.zeros(MIN_ANOMALY_VALUES)
+        print(
+            'WARNING: switching phase every turn is essentially amplitude distortion (duration <= 1.0)'
+        )
+        for i in range(0, MIN_ANOMALY_VALUES):
+            flip_or_shift[i] = True
+    else:
+        flip_or_shift = np.zeros(int(phase_anomaly_points[-1]) + 1)
+        for point in phase_anomaly_points:
+            flip_or_shift[int(point)] = True
+
+    data = {}
+    data['current_phase_shift'] = 0.0
+    def inner_function(t):
+        # due to inexact floating point, this should be even
+        # but we round to the nearest because it might not be
+        # so ceiling and floor would not be appropriate
+        index = int(np.around(t/sample_rate))
+
+        if flip_or_shift[index]:
+            if data['current_phase_shift'] != 0.0:
+                data['current_phase_shift'] = 0.0
+            else:
+                data['current_phase_shift'] = np.random.normal(loc=mean_phase, scale=var_phase)
+
+        part_a = 2*math.pi*(t/period)
+        part_b = np.radians(starting_phase + data['current_phase_shift'])
+        return amplitude*math.sin((part_a + part_b) % (2*math.pi))
+
+    return inner_function
+
 def parse_noise_descriptors(descriptors):
     global_funcs = list()
 
@@ -393,54 +442,6 @@ def parse_noise_descriptors(descriptors):
             ) for (m_amps, v_amps, d_s_amp, sr) in args]
             return funcs
         elif desc['type'] == 'sine_with_phase_error':
-            # Their are arguments to be made about a constant (small-mag) phase
-            # wobble with occasional bumps and for not correcting back to 0 (full-correction)
-            # on the next hit. Yet, we also see this as a good model to test both the effect
-            # of short-term amplitude mispredictions and to test long-term phase mispredictions
-            #
-            # clarification: full-correction back to localized 0 (starting phase)
-            #
-            # their is also something to be said about gaussian noise layered on top of the raw
-            # signal may affect the prediction differently than just as if the signal is shifted
-            # that gaussian noise level up or down. (we do not consider this)
-            def sine_with_phase_error(period, amplitude, starting_phase,
-                                      mean_phase, var_phase, dur_samps_phase, sample_rate):
-                MIN_ANOMALY_VALUES = 10000
-                dur_between_phase_anomaly = np.floor(np.random.power(1, size=MIN_ANOMALY_VALUES)*dur_samps_phase)
-                phase_anomaly_points = incremental_sum(dur_between_phase_anomaly)
-
-                # FIXME same as 'spe'
-                if dur_samps_phase <= 1.0:
-                    flip_or_shift = np.zeros(MIN_ANOMALY_VALUES)
-                    print(
-                        'WARNING: switching phase every turn is essentially amplitude distortion (duration <= 1.0)'
-                    )
-                    for i in range(0, MIN_ANOMALY_VALUES):
-                        flip_or_shift[i] = True
-                else:
-                    flip_or_shift = np.zeros(int(phase_anomaly_points[-1]) + 1)
-                    for point in phase_anomaly_points:
-                        flip_or_shift[int(point)] = True
-
-                data = {}
-                data['current_phase_shift'] = 0.0
-                def inner_function(t):
-                    # due to inexact floating point, this should be even
-                    # but we round to the nearest because it might not be
-                    # so ceiling and floor would not be appropriate
-                    index = int(np.around(t/sample_rate))
-
-                    if flip_or_shift[index]:
-                        if data['current_phase_shift'] != 0.0:
-                            data['current_phase_shift'] = 0.0
-                        else:
-                            data['current_phase_shift'] = np.random.normal(loc=mean_phase, scale=var_phase)
-
-                    part_a = 2*math.pi*(t/period)
-                    part_b = np.radians(starting_phase + data['current_phase_shift'])
-                    return amplitude*math.sin((part_a + part_b) % (2*math.pi))
-
-                return inner_function
             periods = parse_range(desc['period'])
             amplitudes = parse_range(desc['amplitude'])
             starting_phases = parse_range(desc['phase'])
@@ -459,6 +460,40 @@ def parse_noise_descriptors(descriptors):
                 sample_rate,
             )
             funcs = [sine_with_phase_error(
+                period, amp, starting_phase,
+                m_phases, v_phases, d_s_phase, sr
+            ) for (period, amp, starting_phase, m_phases, v_phases, d_s_phase, sr) in args]
+            return funcs
+        elif desc['type'] == 'phase_error':
+            def phase_error(period, amplitude, starting_phase,
+                            mean_phase, var_phase, dur_samps_phase, sample_rate):
+                predicted_sine = sine_with_phase_error(period, amplitude, starting_phase,
+                                                       mean_phase, var_phase, dur_samps_phase, sample_rate)
+                original_sine = sine(period, amplitude, starting_phase)
+
+                def inner_function(t):
+                    return original_sine(t) - predicted_sine(t)
+
+                return inner_function
+
+            periods = parse_range(desc['period'])
+            amplitudes = parse_range(desc['amplitude'])
+            starting_phases = parse_range(desc['phase'])
+
+            mean_phases = parse_range(desc['mean_phase'])
+            var_phases = parse_range(desc['var_phase'])
+            dur_samples_phase = parse_range(desc['dur_samples_phase'])
+            sample_rate = parse_range(desc['sample_rate'])
+            args = itertools.product(
+                periods,
+                amplitudes,
+                starting_phases,
+                mean_phases,
+                var_phases,
+                dur_samples_phase,
+                sample_rate,
+            )
+            funcs = [phase_error(
                 period, amp, starting_phase,
                 m_phases, v_phases, d_s_phase, sr
             ) for (period, amp, starting_phase, m_phases, v_phases, d_s_phase, sr) in args]
