@@ -1,0 +1,23 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = 0.001
+te = 3600
+dc = 0.0
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.04]
+
+[[noise]]
+type='sine'
+phase=0.0
+amplitude=0.4
+period=2000.0
+
+[[pre-noise]]
+type='flare-gj1234'
+amplitude=6.0
+tot_time=3000

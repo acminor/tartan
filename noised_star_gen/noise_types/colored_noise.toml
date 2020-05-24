@@ -1,0 +1,20 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [1.0, 0.001, -0.016]
+te = [1800.0, 87616.0, 7200.0]
+dc = [0.0, 10.0, 6.0]
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.001, 0.04, 0.008]
+
+[[noise]]
+type='uniform'
+min_amplitude=[0.0, 0.02, 0.01]
+max_amplitude=[0.02, 0.06, 0.02]
+
+[[pre-noise]]
+type='skip'

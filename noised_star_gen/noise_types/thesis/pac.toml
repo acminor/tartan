@@ -1,0 +1,16 @@
+[signal]
+start_len = 10
+end_len = 10
+sample_rate = 15
+u0 = 1.0
+te = 1800
+dc = 0.0
+
+# make it so low that it is essentially not there
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.000000001]
+
+[[pre-noise]]
+type='skip'

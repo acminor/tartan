@@ -1,0 +1,25 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [1.0, 0.001, -0.032]
+te = [1800.0, 87616.0, 18000.0]
+dc = [0.0, 7.0, 6.0]
+
+[[noise]]
+type='gaussian'
+mean = [0]
+variance = [0.006]
+
+[[noise]]
+type='sine_with_phase_error'
+mean_phase= [0]
+var_phase = [5, 60, 30]
+dur_samples_phase = [15, 360, 30]
+sample_rate = 15
+period = [2000.0]
+amplitude = [0.04, 0.16, 0.04]
+phase = [0]
+
+[[pre-noise]]
+type='skip'

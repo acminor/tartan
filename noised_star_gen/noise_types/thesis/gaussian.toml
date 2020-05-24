@@ -1,0 +1,15 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = 100000.0
+te = 1
+dc = 0.0
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=2.0
+
+[[pre-noise]]
+type='skip'

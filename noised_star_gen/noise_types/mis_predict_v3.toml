@@ -1,0 +1,53 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [1.0, 0.001, -0.032]
+te = [1800.0, 87616.0, 18000.0]
+dc = [0.0, 7.0, 6.0]
+
+[[noise]]
+type='gaussian'
+mean = [0]
+variance = [0.012]
+
+[[noise]]
+type='simple_predict_error'
+mean_amplitude = [0]
+var_amplitude = [0.04, 0.16, 0.04]
+dur_samples_amplitude = [15, 31, 15]
+sample_rate = 15
+
+[[noise]]
+type='phase_error'
+mean_phase= [0]
+var_phase = [5, 60, 30]
+dur_samples_phase = [15, 120, 30]
+sample_rate = 15
+period = [2000.0]
+amplitude = [0.08, 0.32, 0.08]
+phase = [0]
+
+#[[noise]]
+#type='sine_with_phase_error'
+#mean_phase= [0]
+#var_phase = [15]
+#dur_samples_phase = [150]
+#sample_rate = 1
+#period = [2000]
+#amplitude = [2]
+#phase = [0]
+
+#[[noise]]
+#type='sine'
+#period = [220]
+#amplitude = [2]
+#phase = [0]
+
+#[[noise]]
+#type='uniform'
+#min_amplitude = [1]
+#max_amplitude = [2]
+
+[[pre-noise]]
+type='skip'

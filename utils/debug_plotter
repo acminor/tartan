@@ -40,4 +40,15 @@ def plot_star(star):
     plt.plot(samples)
     plt.show()
 
+@main.command()
+@click.argument('star', type=click.Path())
+def plot_nfd_star(star):
+    with open(star, 'r') as file:
+        samples = []
+        for l in file.readlines():
+            samples.append(1.0*float(l.split()[1]))
+        plt.plot(samples)
+        plt.gca().invert_yaxis()
+        plt.show()
+
 main()

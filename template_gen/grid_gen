@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import pyfftw
 import msgpack
 import math
+import sympy
 
 @click.command()
 @click.option('-t', '--template-type',
@@ -37,15 +38,13 @@ import math
 @click.option('-TE-density', type=int, required=True)
 @click.option('-h', '--half-len',
               type=bool,
-              require=False,
               default=False)
 def main(template_type, output_format, output_file, sample_rate, noise,
          u0_min, u0_max, te_min, te_max, u0_density, te_density, half_len):
     utils.DEBUG = False
-    # TODO for now template type and format is ignored
-    #u0_axis = [u0_min + (u0_max-u0_min)*float(i)/u0_density
-    #           for i in range(0, u0_density)]
-    u0_axis = [1.0]
+    u0_axis = [u0_min + (u0_max-u0_min)*float(i)/u0_density
+               for i in range(0, u0_density)]
+    #u0_axis = [1.0]
     te_axis = [te_min + (te_max-te_min)*float(i)/te_density
                for i in range(0, te_density)]
     grid = [e for e in itertools.product(u0_axis, te_axis)]
@@ -55,17 +54,40 @@ def main(template_type, output_format, output_file, sample_rate, noise,
     noise = np.random.normal(scale=noise, size=10000)
     snf = np.average(sig.welch(noise)[0])
 
+    max_length = 0
+    for u0, te in grid:
+        samples = sampler.sample(lambda t:
+                                 utils.nfd_pzlcw(u0, 0, te, t),
+                                 # 3 + utils.sinw(0.001, t),
+                                 int(te/sample_rate))
+        if half_len:
+            samples = np.array(samples[0:len(samples)//2])
+
+        max_length = max(max_length, len(samples))
+
+    # NOTE FOR NOW ROUND UP TO NEAREST POWER OF TWO
+    #      - SHOULD ALSO HELP SPEED UP FFT CALCULATION
+    max_length = math.pow(2, int(math.ceil(np.log2(max_length))))
+    print(max_length)
+
+    # FROM ARRAYFIRE STUFF FOR OPENCL
+    # https://github.com/arrayfire/arrayfire-python/issues/139
+    if max(sympy.primefactors(max_length)) >= 13:
+        print("WARNING: WILL NOT WORK WITH OPENCL ARRAYFIRE")
+        print("DIVISORS: {}".format(sympy.primefactors(max_length)))
+
+    # max_length = 8192
+    print('max length: {}'.format(max_length))
+
     i = 0
     templates = []
     for u0, te in grid:
         i += 1
         print('Template: {} of {}'.format(i, len(grid)))
 
-        s = 1.4
-        ps = 1.4
-        pps = 1.4
-        ss = 1000
-        samples = sampler.sample(lambda t: utils.pzlcw(u0, 0, te, t),
+        samples = sampler.sample(lambda t:
+                                 utils.nfd_pzlcw(u0, 0, te, t),
+                                 # 3 + utils.sinw(0.001, t),
                                  int(te/sample_rate))
         # 2.5, log10 from NFD paper (I think) TODO check
         samples = 2.5*np.log10(samples)
@@ -73,24 +95,39 @@ def main(template_type, output_format, output_file, sample_rate, noise,
         if half_len:
             samples = np.array(samples[0:len(samples)//2])
 
-        # mean shift to remove DC component
-        samples = samples - np.mean(samples)
+        # Normalize at zero before scaling
+        # - if mean subtract will make
+        #   constant large as it tries to
+        #   make the sum (dependent on the final floating point errors)
+        #   large enough to equal 1, RIGHT???
+        samples = samples - np.min(samples)
 
-        samples_scale = opti.broyden1(
-            lambda x: utils.inner_product(
-                samples*x, samples*x,
-                snf, sampler.freq_scale())[0] - 1, [1])
+        #samples_scale = opti.broyden1(
+        #    lambda x: utils.inner_product_2(
+        #        samples*x, samples*x, max_length) [0] - 1, [1])
+        # NOTE fix in thesis (TODO) cannot linear scale inner_product
+        #samples_scale = utils.inner_product(
+        #    samples, samples,
+        #    snf, sampler.freq_scale()
+        #)[0]
+        #samples_scale = 1.0/samples_scale
+
+        # FROM NUMEROUS PAPERS THIS IS THE PROPER SCALE FACTOR
+        samples_scale = utils.inner_product_2(
+                samples, samples, max_length
+        )[0]
+        samples_scale = 1.0/np.sqrt(samples_scale)
+
         samples = abs(samples_scale)*samples
+        print(utils.inner_product_2(
+            samples, samples, max_length
+        )[0])
 
         templates.append(samples)
 
     templates = np.array(templates)
     with open(output_file+'.mpk', 'bw+') as file:
-        if pre_fft:
-            file.write(msgpack.packb([[(cplx.real, cplx.imag) for cplx in template]
-                                      for template in templates]))
-        else:
-            file.write(msgpack.packb([list(template) for template in templates]))
+        file.write(msgpack.packb([list(template) for template in templates]))
 
     templates = {'templates': output_file+'.mpk', 'pre_fft': False}
     with open(output_file, 'w+') as file:

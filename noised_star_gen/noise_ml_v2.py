@@ -149,6 +149,7 @@ def write_star(star, config_name, output_dir, plot, star_count, new_data_writer)
 
     if plot:
         plt.plot(star['samples'])
+        plt.gca().invert_yaxis()
         plt.title(path_name)
         plt.show()
     else:
@@ -572,7 +573,8 @@ def _gen(desc_file, config_name, output_dir, plot, new_data_fmt):
     pre_noise_func_groups = parse_pre_noise(desc_file['pre-noise'], sample_rate)
 
     def gen_template(u0, te):
-        width = int(math.ceil(te/sample_rate))
+        # width = int(math.ceil(te/sample_rate))
+        width = int(math.ceil(te/2.0))
         # makes sure that both sides are roughly the same DC for shifting star gen stuff later
         template = [utils.nfd_pzlcw(u0, 0, te, t) for t in range(-width, width+sample_rate,
                                                                  sample_rate)]
@@ -608,10 +610,15 @@ def _gen(desc_file, config_name, output_dir, plot, new_data_fmt):
             # NOTE: plus sample_rate on all to get the next point (not the last point used)
             i = ran[-1] + sample_rate
 
+            # XXX TODO Actually determine the best logarithmic way of doing things
             pre_noise_without_signal = []
             pre_noise = []
             for pnf in pre_noise_funcs:
-                pre_noise += pnf()
+                data = 2.5*np.log(np.array(pnf()) + 1.0)
+                if len(data) > 0:
+                    data = data - np.min(data)
+                    pre_noise += list(data)
+                #pre_noise += pnf()
 
             if len(pre_noise) > 0:
                 #raise Exception("greater than 0: {}".format(pre_noise))
@@ -650,6 +657,7 @@ def _gen(desc_file, config_name, output_dir, plot, new_data_fmt):
             #     will make updating code here not have to change match filter code
             # [ ] TODO fix it also in match filter
             datum = np.array(start+pre_noise+middle+end)
+            #datum = -1.0*np.array(start+pre_noise+middle+end)
             datum = {
                 'samples': datum + dc,
                 'spow': spow,

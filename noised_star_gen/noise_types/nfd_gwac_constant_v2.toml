@@ -1,0 +1,17 @@
+# NOTE FROM NFD PAPER (GWAC-Con)
+
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [0.001, 1.1, 0.25] # only difference is .750 and 1.0
+te = [3600, 82801, 7200]
+dc = [0.0]
+
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.01, 0.17, 0.05] # different
+
+[[pre-noise]]
+type='skip'

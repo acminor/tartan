@@ -6,7 +6,7 @@ import matplotlib.backends as pltb
 from collections import namedtuple
 from copy import deepcopy
 import math
-#import pyfftw
+import pyfftw
 
 import matplotlib
 matplotlib.use('Gtk3Agg')
@@ -39,8 +39,8 @@ class Sampler:
             samples.append(function(i*self.sample_rate))
         return np.array(samples)
 
-def sinw(freq, t, scale=1):
-    return scale*math.sin(2*math.pi*freq*t)
+def sinw(freq, t, phase=0, scale=1):
+    return scale*math.sin((2.0*math.pi*freq*t + phase) % (2.0*math.pi))
 
 def sqw(t, scale=1):
     return scale
@@ -133,6 +133,34 @@ def inner_product(template, signal, snf, freq_scale, template_pre_fft=False):
         print('Max over filter: {}'.format(np.max(eq)))
 
     return ip, eq
+
+def easy_rfft(signal, length):
+    signal = pyfftw.byte_align(signal, n=pyfftw.simd_alignment)
+    signal_fft = pyfftw.interfaces.numpy_fft.fft(signal, n=length)
+
+    # using the numpy fftfreq reference
+    # [ ] TODO check if correct
+    # - ie only concerned with pos. freq. in fft
+    if (length % 2) == 1:
+        # odd
+        real_length = int((length - 1)/2)
+    else:
+        # even
+        real_length = int((length / 2) - 1)
+
+    signal_fft = signal_fft[0:real_length]
+
+    return signal_fft
+
+def inner_product_2(template, signal, fft_max_len):
+    temp_fft = easy_rfft(template, fft_max_len)
+    signal_fft = easy_rfft(signal, fft_max_len)
+
+    left_res = temp_fft * np.conjugate(signal_fft)
+    right_res = np.conjugate(temp_fft) * signal_fft
+
+    res = np.real(np.sum(left_res + right_res))
+    return res, None
 
 def window_iter(data, offset, length):
     if data.size < offset+length and DEBUG:

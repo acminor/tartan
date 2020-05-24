@@ -1,0 +1,40 @@
+#!/bin/bash
+
+U0_MIN=0.001
+U0_MAX=1.1
+TE_MIN=7200.0
+TE_MAX=7201.0
+
+echo $1
+echo $2
+
+# to halve or to not halve that is the question
+if [[ $3 = "-h" ]]
+then
+    ./grid_gen \
+        -t even \
+        -f ntemp \
+        -o "templates-${TE_MIN}x${TE_MAX}-$1x$2-set_u0.toml" \
+        -s 15 \
+        -u0-min $U0_MIN \
+        -u0-max $U0_MAX \
+        -TE-min $TE_MIN \
+        -TE-max $TE_MAX \
+        -u0-density $1 \
+        -TE-density 1 \
+        --noise .06 \
+        -h True
+else
+    ./grid_gen \
+        -t even \
+        -f ntemp \
+        -o "templates-${TE_MIN}x${TE_MAX}-$1x$2-set_u0.toml" \
+        -s 15 \
+        -u0-min $U0_MIN \
+        -u0-max $U0_MAX \
+        -TE-min $TE_MIN \
+        -TE-max $TE_MAX \
+        -u0-density $1 \
+        -TE-density 1 \
+        --noise .06
+fi

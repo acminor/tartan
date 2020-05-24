@@ -1,0 +1,33 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = [1.0, 0.001, -0.016]
+te = [1800.0, 87616.0, 14400.0]
+dc = [0.0]
+
+[[noise]]
+type='sine'
+amplitude=[0.125, 0.376, 0.25]
+phase=0
+period=[400]
+
+[[noise]]
+type='sine'
+amplitude=[0.25, 0.6, 0.25]
+phase=0
+period=[2000, 5001, 3000]
+
+[[noise]]
+type='sine'
+amplitude=[0.125, 0.376, 0.25]
+phase=0
+period=[10000, 20001, 10000]
+
+[[noise]]
+type='gaussian'
+mean=0.0
+variance=0.024
+
+[[pre-noise]]
+type='skip'

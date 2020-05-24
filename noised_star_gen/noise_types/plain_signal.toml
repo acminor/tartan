@@ -14,5 +14,5 @@ variance=[0.00000001]
 
 [[pre-noise]]
 type='flare-gj1234'
-amplitude=[6.0, 10.0, 2.0]
-tot_time=[100, 7200, 3000]
+amplitude=[10, 20, 8]
+tot_time=[3000]

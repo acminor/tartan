@@ -1,0 +1,22 @@
+[signal]
+start_len = 1000
+end_len = 1000
+sample_rate = 15
+u0 = 100000
+te = 1
+dc = 0.0
+
+# make it so low that it is essentially not there
+[[noise]]
+type='gaussian'
+mean=0
+variance=[0.000000001]
+
+[[noise]]
+type='cosine'
+phase=0.0
+amplitude=0.4
+period=2000.0
+
+[[pre-noise]]
+type='skip'
